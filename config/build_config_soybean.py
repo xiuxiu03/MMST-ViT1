@@ -85,7 +85,7 @@ def get_short_HRRR_obj(state, fips, year, months=[i + 1 for i in range(12)]):
     file_paths = []
     for month in months:
         month = str(month).zfill(2)
-        path = "WRF-HRRR/data/{}/{}/HRRR_{}_{}_{}-{}.csv".format(year, state, fips[:2], state, year, month)
+        path = "WRF-HRRR Computed Dataset/data/{}/{}/HRRR_{}_{}_{}-{}.csv".format(year, state, fips[:2], state, year, month)
         file_paths.append(path)
     return file_paths
 
@@ -96,7 +96,7 @@ def get_long_HRRR_obj(state, fips, years, months=[i + 1 for i in range(12)]):
         year_paths = []
         for month in months:
             month = str(month).zfill(2)
-            path = "WRF-HRRR/data/{}/{}/HRRR_{}_{}_{}-{}.csv".format(year, state, fips[:2], state, year, month)
+            path = "WRF-HRRR Computed Dataset/data/{}/{}/HRRR_{}_{}_{}-{}.csv".format(year, state, fips[:2], state, year, month)
             year_paths.append(path)
         file_paths.append(year_paths)
     return file_paths
