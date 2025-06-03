@@ -87,7 +87,7 @@ def get_args_parser():
                         help='url used to set up distributed training')
 
     # dataset
-    parser.add_argument('-dr', '--root_dir', type=str, default='/mnt/data/Tiny CropNet')
+    parser.add_argument('-dr', '--root_dir', type=str, default='/mnt/data/common_data/multi_modal')
     parser.add_argument('-tf', '--data_file', type=str, default='./data/soybean_train.json')
     parser.add_argument('-sf', '--save_freq', type=int, default=5)
 
