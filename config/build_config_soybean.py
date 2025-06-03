@@ -35,7 +35,7 @@ def build_soybean_val(target_fips=None):
     counties = df.to_json(orient='records', lines=False)
     counties = json.loads(counties)
 
-    path = "./../data/soybean_val.json"
+    path = "./data/soybean_val.json"
 
     data = []
     for county_info in counties:
