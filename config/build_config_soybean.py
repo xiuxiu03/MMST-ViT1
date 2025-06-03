@@ -13,7 +13,7 @@ def build_soybean_train(target_fips=None):
     counties = df.to_json(orient='records', lines=False)
     counties = json.loads(counties)
 
-    path = "./../data/soybean_train.json"
+    path = "./data/soybean_train.json"
 
     data = []
     for county_info in counties:
