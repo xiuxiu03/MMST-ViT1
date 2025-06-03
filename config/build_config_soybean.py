@@ -26,7 +26,7 @@ def build_soybean_train(target_fips=None):
 
 
 def build_soybean_val(target_fips=None):
-    csv_path = "./../input/county_info_2022.csv"
+    csv_path = "./input/county_info_2022.csv"
     df = pd.read_csv(csv_path)
 
     if target_fips:
