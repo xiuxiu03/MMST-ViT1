@@ -4,7 +4,7 @@ import pandas as pd
 
 
 def build_soybean_train(target_fips=None):
-    csv_path = "./../input/county_info_2021.csv"
+    csv_path = "./input/county_info_2021.csv"
     df = pd.read_csv(csv_path)
 
     if target_fips:
