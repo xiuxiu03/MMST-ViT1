@@ -68,8 +68,8 @@ def get_data_loader(X, Y, batch_size=128, num_workers=8):
 
 
 if __name__ == '__main__':
-    root_dir = "/mnt/data/Tiny CropNet"
-    train = "./../data/soybean_train.json"
+    root_dir = "/mnt/data/common_data/multi_modal"
+    train = "./data/soybean_train.json"
     dataset = Sentinel_Dataset(root_dir, train)
     train_loader = torch.utils.data.DataLoader(dataset, batch_size=1)
 
