@@ -67,7 +67,7 @@ def get_json_obj(year, county_info):
                 "short_term": short_term,
                 "long_term": long_term,
             },
-            "USDA": "USDA/data/Soybean/{}/USDA_Soybean_County_{}.csv".format(year, year),
+            "USDA": "USDA Crop Dataset/data/Soybean/{}/USDA_Soybean_County_{}.csv".format(year, year),
             "sentinel": [
                 "Sentinel-2 Imagery/data/{}/{}/Agriculture_{}_{}_{}-04-01_{}-06-30.h5".format(year, state, fips[:2],
                                                                                               state, year, year),
