@@ -69,8 +69,8 @@ if __name__ == '__main__':
    # train = "./../data/soybean_train.json"
     
 
-    dataset = USDA_Dataset(root_dir, train)
-    train_loader = torch.utils.data.DataLoader(dataset, batch_size=1)
+   dataset = USDA_Dataset(root_dir, train)
+   train_loader = torch.utils.data.DataLoader(dataset, batch_size=1)
 
-    for x, f, y in train_loader:
-        print("fips: {}, year: {}, shape: {}".format(f, y, x.shape))
+   for x, f, y in train_loader:
+       print("fips: {}, year: {}, shape: {}".format(f, y, x.shape))
