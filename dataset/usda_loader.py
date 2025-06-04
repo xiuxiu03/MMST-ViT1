@@ -65,8 +65,8 @@ class USDA_Dataset(Dataset):
 
 if __name__ == '__main__':
    root_dir = "/mnt/data/common_data/multi_modal/Tiny-CropNet"
-    train = "./data/soybean_train.json"
-    # train = "./../data/soybean_train.json"
+   train = "./data/soybean_train.json"
+   # train = "./../data/soybean_train.json"
     
 
     dataset = USDA_Dataset(root_dir, train)
