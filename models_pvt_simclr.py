@@ -15,22 +15,41 @@ class PVTSimCLR(nn.Module):
 
         self.proj_context = nn.Linear(context_dim, out_dim)
 
-        # attention
+        # 修改多模态Transformer为时间延迟版本
         dim_head = out_dim // num_head
-        self.mm_transformer = TimeShiftedMultiModalAttention(out_dim, mm_depth, num_head, dim_head, context_dim=out_dim, dropout=dropout)
+        self.mm_transformer = nn.ModuleList([
+            PreNorm(out_dim, TimeShiftedMultiModalAttention(
+                query_dim=out_dim,
+                context_dim=out_dim,
+                heads=num_head,
+                dim_head=dim_head,
+                max_time_lag=max_time_lag,
+                dropout=dropout
+            )) for _ in range(mm_depth)
+        ])
+        self.ff = nn.ModuleList([
+            PreNorm(out_dim, FeedForward(out_dim, dropout=dropout)) 
+            for _ in range(mm_depth)
+        ])
 
-        self.norm1 = nn.LayerNorm(context_dim)
-
-    def forward(self, x, context=None):
-        h = self.backbone.forward_features(x)  # shape = B, N, D
-        h = h.squeeze()
-
-        # project to targeted dim
-        x = self.proj(h)
-        context = self.proj_context(self.norm1(context))
-
-        # multi-modal attention
-        x = self.mm_transformer(x, context=context)
-
-        # return the classification token
-        return x[:, 0]
+    def forward(self, x, context=None, time_mask=None):
+    # 提取视觉特征
+    h = self.backbone.forward_features(x)  # [B, N, D]
+    h = h.squeeze()  # [B, D]
+    
+    # 投影到目标维度
+    x = self.proj(h)  # [B, out_dim]
+    context = self.proj_context(self.norm1(context))  # [B, T, out_dim]
+    
+    # 确保输入形状一致
+    if x.dim() == 2:
+        x = x.unsqueeze(1)  # [B, 1, out_dim]
+    
+    # 多模态时间延迟注意力
+    for attn, ff in zip(self.mm_transformer, self.ff):
+        x_attn, _ = attn(x, context=context, mask=time_mask)  # 传入时间掩码
+        x = x_attn + x
+        x = ff(x) + x
+    
+    # 返回分类token或全局平均
+    return x.mean(dim=1) if x.size(1) > 1 else x.squeeze(1)
