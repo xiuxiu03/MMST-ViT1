@@ -4,7 +4,6 @@ import torch
 import torch.nn.functional as F
 from torch import nn, einsum
 from einops import rearrange, repeat
-import matplotlib.pyplot as plt
 
 def exists(val):
     return val is not None
