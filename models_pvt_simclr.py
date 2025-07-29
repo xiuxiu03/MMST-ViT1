@@ -1,5 +1,5 @@
 import models_pvt
-from attention import MultiModalTransformer
+from attention import TimeShiftedMultiModalAttention
 from torch import nn
 
 
