@@ -109,19 +109,27 @@ class TimeShiftedMultiModalAttention(nn.Module):
             lag_limit_mask = torch.ones_like(sim, device=x.device).tril(diagonal=-self.max_time_lag-1).bool()
             sim.masked_fill_(lag_limit_mask, -torch.finfo(sim.dtype).max)
         
-        # 创建时间滞后索引 - 这是关键修正部分
+        # 创建时间滞后索引
         rows = torch.arange(sim.size(-2), device=x.device).view(-1, 1)
         cols = torch.arange(sim.size(-1), device=x.device).view(1, -1)
         time_lags = (rows - cols).clamp(min=0, max=self.max_time_lag)
         
-        # 确保lag_weights有正确的形状
-        lag_weights = self.lag_weights.view(1, 1, -1)  # 形状调整为[1,1,max_time_lag+1]
+        # 扩展lag_weights以匹配sim的形状
+        lag_weights = self.lag_weights.view(1, 1, -1)  # [1, 1, max_time_lag+1]
+        lag_weights = lag_weights.expand(sim.size(0), sim.size(1), sim.size(2), -1)  # [B*H, T, T, max_time_lag+1]
         
-        # 使用gather而不是直接索引
-        sim = sim + torch.gather(
-            lag_weights.expand(sim.size(0), sim.size(1), sim.size(2), -1),
-            2,
-            time_lags.unsqueeze(0).expand(sim.size(0), -1, -1))
+        # 使用gather应用滞后权重
+        # 首先需要将time_lags扩展到与sim相同的batch维度
+        time_lags_expanded = time_lags.unsqueeze(0).expand(sim.size(0), -1, -1)  # [B*H, T, T]
+        
+        # 使用gather
+        lag_effect = torch.gather(
+            lag_weights, 
+            dim=-1, 
+            index=time_lags_expanded.unsqueeze(-1)
+        ).squeeze(-1)
+        
+        sim = sim + lag_effect
         
         # 应用输入mask（如有）
         if exists(mask):
@@ -132,7 +140,7 @@ class TimeShiftedMultiModalAttention(nn.Module):
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) t d -> b t (h d)', h=h)
         return self.to_out(out), attn.detach()
-
+        
 # 空间注意力（保持不变）
 class SpatialAttention(nn.Module):
     def __init__(self, dim, heads=8, dim_head=64, dropout=0.):
