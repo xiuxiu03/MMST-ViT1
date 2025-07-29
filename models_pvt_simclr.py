@@ -17,7 +17,7 @@ class PVTSimCLR(nn.Module):
 
         # attention
         dim_head = out_dim // num_head
-        self.mm_transformer = MultiModalTransformer(out_dim, mm_depth, num_head, dim_head, context_dim=out_dim, dropout=dropout)
+        self.mm_transformer = TimeShiftedMultiModalAttention(out_dim, mm_depth, num_head, dim_head, context_dim=out_dim, dropout=dropout)
 
         self.norm1 = nn.LayerNorm(context_dim)
 
