@@ -106,7 +106,7 @@ class TimeShiftedMultiModalAttention(nn.Module):
         
         # 限制最大滞后步长
         if self.max_time_lag < sim.size(-1) - 1:
-            lag_limit_mask = torch.ones_like(sim).tril(diagonal=-self.max_time_lag-1).bool()
+            lag_limit_mask = torch.ones_like(sim, device=x.device).tril(diagonal=-self.max_time_lag-1).bool()
             sim.masked_fill_(lag_limit_mask, -torch.finfo(sim.dtype).max)
         
         # 应用可学习滞后权重
@@ -124,7 +124,7 @@ class TimeShiftedMultiModalAttention(nn.Module):
         attn = sim.softmax(dim=-1)
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) t d -> b t (h d)', h=h)
-        return self.to_out(out), attn.detach()  # 返回注意力权重用于可视化
+        return self.to_out(out), attn.detach()
 
 # 空间注意力（保持不变）
 class SpatialAttention(nn.Module):
