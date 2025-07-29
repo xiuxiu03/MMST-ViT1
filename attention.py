@@ -121,7 +121,7 @@ class TimeShiftedMultiModalAttention(nn.Module):
         sim = sim + torch.gather(
             lag_weights.expand(sim.size(0), sim.size(1), sim.size(2), -1),
             2,
-            time_lags.unsqueeze(0).expand(sim.size(0), -1, -1)
+            time_lags.unsqueeze(0).expand(sim.size(0), -1, -1))
         
         # 应用输入mask（如有）
         if exists(mask):
