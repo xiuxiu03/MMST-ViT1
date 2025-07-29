@@ -94,7 +94,7 @@ class TimeShiftedMultiModalAttention(nn.Module):
         k = self.to_k(context)
         v = self.to_v(context)
         
-        # 重排为多头形式
+        # 重排为多头形式 [batch, time, (heads dim)] -> [batch heads time dim]
         q, k, v = map(lambda t: rearrange(t, 'b t (h d) -> (b h) t d', h=h), (q, k, v))
         
         # 计算原始注意力分数
@@ -110,24 +110,24 @@ class TimeShiftedMultiModalAttention(nn.Module):
             sim.masked_fill_(lag_limit_mask, -torch.finfo(sim.dtype).max)
         
         # 创建时间滞后索引 - 关键修正部分
-        rows = torch.arange(sim.size(-2), device=x.device).view(-1, 1)
-        cols = torch.arange(sim.size(-1), device=x.device).view(1, -1)
+        t = sim.size(1)  # 时间步数
+        rows = torch.arange(t, device=x.device).view(-1, 1)
+        cols = torch.arange(t, device=x.device).view(1, -1)
         time_lags = (rows - cols).clamp(min=0, max=self.max_time_lag)
         
         # 正确扩展lag_weights
         lag_weights = self.lag_weights.view(1, 1, -1)  # [1, 1, max_time_lag+1]
-        # 修正expand调用方式
-        lag_weights = lag_weights.expand(sim.size(0), sim.size(1), sim.size(2), -1)  # [B*H, T, T, max_time_lag+1]
         
-        # 准备gather的索引
-        time_lags_expanded = time_lags.unsqueeze(0).expand(sim.size(0), -1, -1).unsqueeze(-1)  # [B*H, T, T, 1]
+        # 使用广播机制而不是expand
+        # 首先将time_lags转换为适合gather的形式
+        time_lags_expanded = time_lags.unsqueeze(0)  # [1, t, t]
+        time_lags_expanded = time_lags_expanded.expand(sim.size(0), -1, -1)  # [batch*heads, t, t]
         
         # 应用滞后权重
-        lag_effect = torch.gather(
-            lag_weights,
-            dim=-1,
-            index=time_lags_expanded
-        ).squeeze(-1)  # [B*H, T, T]
+        lag_effect = self.lag_weights[time_lags]  # 直接索引
+        
+        # 由于lag_effect已经是[t, t]，我们需要将其广播到[batch*heads, t, t]
+        lag_effect = lag_effect.unsqueeze(0).expand(sim.size(0), -1, -1)
         
         sim = sim + lag_effect
         
