@@ -109,12 +109,19 @@ class TimeShiftedMultiModalAttention(nn.Module):
             lag_limit_mask = torch.ones_like(sim, device=x.device).tril(diagonal=-self.max_time_lag-1).bool()
             sim.masked_fill_(lag_limit_mask, -torch.finfo(sim.dtype).max)
         
-        # 应用可学习滞后权重
-        time_lags = torch.arange(sim.size(-2), device=x.device)[:, None] - \
-                   torch.arange(sim.size(-1), device=x.device)[None, :]
-        time_lags = time_lags.clamp(min=0, max=self.max_time_lag)
-        lag_weights = self.lag_weights[time_lags]
-        sim = sim + lag_weights
+        # 创建时间滞后索引 - 这是关键修正部分
+        rows = torch.arange(sim.size(-2), device=x.device).view(-1, 1)
+        cols = torch.arange(sim.size(-1), device=x.device).view(1, -1)
+        time_lags = (rows - cols).clamp(min=0, max=self.max_time_lag)
+        
+        # 确保lag_weights有正确的形状
+        lag_weights = self.lag_weights.view(1, 1, -1)  # 形状调整为[1,1,max_time_lag+1]
+        
+        # 使用gather而不是直接索引
+        sim = sim + torch.gather(
+            lag_weights.expand(sim.size(0), sim.size(1), sim.size(2), -1),
+            2,
+            time_lags.unsqueeze(0).expand(sim.size(0), -1, -1)
         
         # 应用输入mask（如有）
         if exists(mask):
