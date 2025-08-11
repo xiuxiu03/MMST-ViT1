@@ -63,6 +63,7 @@ class PreNorm(nn.Module):
     def forward(self, x, **kwargs):
         return self.fn(self.norm(x), **kwargs)
 
+# 时间延迟多模态注意力
 class TimeShiftedMultiModalAttention(nn.Module):
     def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, max_time_lag=3, dropout=0.):
         super().__init__()
@@ -73,7 +74,8 @@ class TimeShiftedMultiModalAttention(nn.Module):
         self.heads = heads
         self.max_time_lag = max_time_lag
         
-        # 移除了可学习的滞后权重参数
+        # 可学习的滞后权重参数
+        self.lag_weights = nn.Parameter(torch.randn(max_time_lag + 1))
         
         # 标准QKV投影
         self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
@@ -107,18 +109,24 @@ class TimeShiftedMultiModalAttention(nn.Module):
             lag_limit_mask = torch.ones_like(sim, device=x.device).tril(diagonal=-self.max_time_lag-1).bool()
             sim.masked_fill_(lag_limit_mask, -torch.finfo(sim.dtype).max)
         
-        # 创建时间滞后索引
+        # 创建时间滞后索引 - 关键修正部分
         t = sim.size(1)  # 时间步数
         rows = torch.arange(t, device=x.device).view(-1, 1)
         cols = torch.arange(t, device=x.device).view(1, -1)
         time_lags = (rows - cols).clamp(min=0, max=self.max_time_lag)
         
-        # 使用固定的指数衰减作为时间滞后权重
-        # 这里使用简单的指数衰减，可以根据需要调整衰减率
-        lag_effect = -time_lags.float() / self.max_time_lag  # 线性衰减
-        # 或者使用指数衰减: lag_effect = torch.exp(-time_lags.float() / self.max_time_lag)
+        # 正确扩展lag_weights
+        lag_weights = self.lag_weights.view(1, 1, -1)  # [1, 1, max_time_lag+1]
         
-        # 广播到所有batch和head
+        # 使用广播机制而不是expand
+        # 首先将time_lags转换为适合gather的形式
+        time_lags_expanded = time_lags.unsqueeze(0)  # [1, t, t]
+        time_lags_expanded = time_lags_expanded.expand(sim.size(0), -1, -1)  # [batch*heads, t, t]
+        
+        # 应用滞后权重
+        lag_effect = self.lag_weights[time_lags]  # 直接索引
+        
+        # 由于lag_effect已经是[t, t]，我们需要将其广播到[batch*heads, t, t]
         lag_effect = lag_effect.unsqueeze(0).expand(sim.size(0), -1, -1)
         
         sim = sim + lag_effect
