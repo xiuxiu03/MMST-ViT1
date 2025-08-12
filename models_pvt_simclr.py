@@ -1,9 +1,8 @@
 import models_pvt
-from attention import TimeShiftedMultiModalAttention  # 修改1：导入时间延迟注意力
+from attention import TimeShiftedMultiModalAttention
 from torch import nn
 from einops import rearrange
 
-# 新增辅助类
 class PreNorm(nn.Module):
     def __init__(self, dim, fn):
         super().__init__()
@@ -30,7 +29,7 @@ class FeedForward(nn.Module):
 
 class PVTSimCLR(nn.Module):
     def __init__(self, base_model, out_dim=512, context_dim=9, num_head=8, 
-                 mm_depth=2, dropout=0., max_time_lag=3, pretrained=True):  # 修改2：增加max_time_lag参数
+                 mm_depth=2, dropout=0., max_time_lag=3, pretrained=True):
         super(PVTSimCLR, self).__init__()
         
         self.backbone = models_pvt.__dict__[base_model](pretrained=pretrained)
@@ -40,7 +39,6 @@ class PVTSimCLR(nn.Module):
         self.proj_context = nn.Linear(context_dim, out_dim)
         self.norm1 = nn.LayerNorm(context_dim)
         
-        # 修改3：重构多模态Transformer
         dim_head = out_dim // num_head
         self.mm_transformer = nn.ModuleList([
             PreNorm(out_dim, TimeShiftedMultiModalAttention(
@@ -48,7 +46,7 @@ class PVTSimCLR(nn.Module):
                 context_dim=out_dim,
                 heads=num_head,
                 dim_head=dim_head,
-                max_time_lag=max_time_lag,  # 传入滞后参数
+                max_time_lag=max_time_lag,
                 dropout=dropout
             )) for _ in range(mm_depth)
         ])
@@ -57,7 +55,7 @@ class PVTSimCLR(nn.Module):
             for _ in range(mm_depth)
         ])
 
-    def forward(self, x, context=None, time_mask=None):  # 修改4：增加time_mask参数
+    def forward(self, x, context=None, mask=None):  # 参数名从time_mask改为更通用的mask
         # 视觉特征提取
         h = self.backbone.forward_features(x)  # [B, N, D]
         h = h.mean(dim=1) if h.dim() == 3 else h  # 确保[B, D]
@@ -66,9 +64,15 @@ class PVTSimCLR(nn.Module):
         x = self.proj(h).unsqueeze(1)  # [B, 1, D]
         context = self.proj_context(self.norm1(context))  # [B, T, D]
         
+        # 准备mask（如果需要）
+        if mask is not None:
+            # 确保mask形状正确 [B, T]
+            if mask.dim() == 1:
+                mask = mask.unsqueeze(0).expand(x.size(0), -1)
+        
         # 多模态时间延迟注意力
         for attn, ff in zip(self.mm_transformer, self.ff):
-            x_attn, _ = attn(x, context=context, mask=time_mask)
+            x_attn, _ = attn(x, context=context, mask=mask)  # 传入mask
             x = x_attn + x
             x = ff(x) + x
         
