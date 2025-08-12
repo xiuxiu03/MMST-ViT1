@@ -112,8 +112,6 @@ class TimeShiftedMultiModalAttention(nn.Module):
         
         sim = sim + lag_effect
         
-            sim.masked_fill_(~mask, -torch.finfo(sim.dtype).max)
-        
         attn = sim.softmax(dim=-1)
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) t d -> b t (h d)', h=h)
