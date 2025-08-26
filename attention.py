@@ -65,7 +65,7 @@ class PreNorm(nn.Module):
 
 # 时间延迟多模态注意力
 class TimeShiftedMultiModalAttention(nn.Module):
-    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, max_time_lag=3, dropout=0.):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, max_time_lag=3, dropout=0., ff_mult=4):
         super().__init__()
         inner_dim = dim_head * heads
         context_dim = default(context_dim, query_dim)
@@ -86,8 +86,28 @@ class TimeShiftedMultiModalAttention(nn.Module):
             nn.Linear(inner_dim, query_dim),
             nn.Dropout(dropout)
         )
+        
+        # 添加层归一化
+        self.norm1 = nn.LayerNorm(query_dim)
+        self.norm2 = nn.LayerNorm(query_dim)
+        
+        # 添加前馈网络
+        ff_dim = query_dim * ff_mult
+        self.ff = nn.Sequential(
+            nn.Linear(query_dim, ff_dim),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(ff_dim, query_dim),
+            nn.Dropout(dropout)
+        )
 
     def forward(self, x, context=None, mask=None):
+        # 保存残差连接
+        residual = x
+        
+        # 应用第一个归一化
+        x = self.norm1(x)
+        
         h = self.heads
         q = self.to_q(x)
         context = default(context, x)
@@ -112,10 +132,27 @@ class TimeShiftedMultiModalAttention(nn.Module):
         
         sim = sim + lag_effect
         
+        if mask is not None:
+            mask = mask.unsqueeze(1).expand(-1, sim.size(1), -1)
+            mask = mask.unsqueeze(0).expand(sim.size(0), -1, -1, -1)
+            mask_value = -torch.finfo(sim.dtype).max
+            sim = sim.masked_fill(~mask, mask_value)
+        
         attn = sim.softmax(dim=-1)
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) t d -> b t (h d)', h=h)
-        return self.to_out(out), attn.detach()
+        out = self.to_out(out)
+        
+        # 添加残差连接
+        out = out + residual
+        
+        # 应用第二个归一化和前馈网络
+        residual_ff = out
+        out = self.norm2(out)
+        out = self.ff(out)
+        out = out + residual_ff
+        
+        return out, attn.detach()
         
 # 空间注意力（保持不变）
 class SpatialAttention(nn.Module):
