@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from einops import rearrange, repeat
 
-from attention import SpatialTransformer, TimeShiftedCrossModalAttention
+from attention import SpatialTransformer, TemporalTransformer
 
 from models_pvt_simclr import PVTSimCLR
 
@@ -26,8 +26,15 @@ class MMST_ViT(nn.Module):
         self.space_transformer = SpatialTransformer(dim, depth, heads, dim_head, mult=scale_dim, dropout=dropout)
 
         self.temporal_token = nn.Parameter(torch.randn(1, 1, dim))
-        # 更新 TimeShiftedCrossModalAttention 初始化，添加 max_time_lag 参数
-        self.temporal_transformer = TimeShiftedCrossModalAttention(dim, depth, heads, dim_head, max_time_lag=max_time_lag, mult=scale_dim, dropout=dropout)
+        # 更新 TemporalTransformer 初始化，添加 max_time_lag 参数
+        self.temporal_transformer = TemporalTransformer(
+            dim=dim, 
+            depth=depth, 
+            heads=heads, 
+            dim_head=dim_head, 
+            max_time_lag=max_time_lag,  # 添加时间滞后参数
+            dropout=dropout
+        )
 
         self.dropout = nn.Dropout(emb_dropout)
         self.pool = pool
@@ -85,7 +92,6 @@ class MMST_ViT(nn.Module):
         yl = self.norm1(yl)
 
         # 更新 TemporalTransformer 调用，传递气象数据作为上下文
-        # 这里假设 TemporalTransformer 现在支持 context 参数
         x = self.temporal_transformer(x, context=yl)
 
         x = x.mean(dim=1) if self.pool == 'mean' else x[:, 0]
