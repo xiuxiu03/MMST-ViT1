@@ -281,19 +281,32 @@ class SpatialTransformer(nn.Module):
 
 
 class TemporalTransformer(nn.Module):
-    def __init__(self, dim, depth, heads, dim_head, max_time_lag=5, mult=4, dropout=0.):
+    def __init__(self, dim, depth, heads, dim_head, max_time_lag=5, dropout=0.):
         super().__init__()
         self.layers = nn.ModuleList([])
         self.norm = nn.LayerNorm(dim)
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, TemporalAttention(dim, heads=heads, dim_head=dim_head, 
-                                              max_time_lag=max_time_lag, dropout=dropout)),
-                PreNorm(dim, FeedForward(dim, dim_out=dim, mult=mult, dropout=dropout))
+                PreNorm(dim, TimeShiftedCrossModalAttention(
+                    query_dim=dim, 
+                    context_dim=dim, 
+                    heads=heads, 
+                    dim_head=dim_head, 
+                    max_time_lag=max_time_lag, 
+                    dropout=dropout
+                )),
+                PreNorm(dim, FeedForward(dim, dropout=dropout))
             ]))
 
-    def forward(self, x, bias=None):
+    def forward(self, x, bias=None, context=None):
+        # 为了保持兼容性，支持bias和context参数
+        # 如果提供了context，使用context作为跨模态注意力的输入
         for attn, ff in self.layers:
-            x = attn(x, bias=bias) + x
+            if context is not None:
+                # 使用跨模态注意力，x作为query，context作为key/value
+                x = attn(x, context=context) + x
+            else:
+                # 使用自注意力
+                x = attn(x) + x
             x = ff(x) + x
         return self.norm(x)
