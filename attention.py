@@ -221,24 +221,6 @@ class TimeShiftedCrossModalAttention(nn.Module):
         # 只返回输出张量，不返回注意力图（避免元组拼接错误）
         return self.to_out(out)
 
-class TemporalAttention(nn.Module):
-    def __init__(self, dim, heads=8, dim_head=64, max_time_lag=5, dropout=0.):
-        super().__init__()
-        self.cross_modal_attention = TimeShiftedCrossModalAttention(
-            query_dim=dim,
-            context_dim=dim,
-            heads=heads,
-            dim_head=dim_head,
-            max_time_lag=max_time_lag,
-            dropout=dropout
-        )
-
-    def forward(self, x, bias=None):
-        # 为了保持接口一致性，忽略bias参数或将其作为context传递
-        output, attn_map = self.cross_modal_attention(x, context=x)
-        return output
-
-
 class MultiModalTransformer(nn.Module):
     def __init__(self, dim, depth, heads, dim_head, context_dim=9, mult=4, dropout=0.):
         super().__init__()
