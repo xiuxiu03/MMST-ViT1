@@ -146,42 +146,101 @@ class SpatialAttention(nn.Module):
         return out
 
 
-class TemporalAttention(nn.Module):
-    def __init__(self, dim, heads=8, dim_head=64, dropout=0.):
+class TimeShiftedCrossModalAttention(nn.Module):
+    def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, max_time_lag=5, dropout=0.):
         super().__init__()
         inner_dim = dim_head * heads
-        project_out = not (heads == 1 and dim_head == dim)
+        context_dim = default(context_dim, query_dim)
 
-        self.heads = heads
         self.scale = dim_head ** -0.5
+        self.heads = heads
+        self.max_time_lag = max_time_lag
 
-        self.to_qkv = nn.Linear(dim, inner_dim * 3, bias=False)
+        # 遥感图像到查询向量
+        self.to_q = nn.Linear(query_dim, inner_dim, bias=False)
+        # 气象数据到键值向量
+        self.to_k = nn.Linear(context_dim, inner_dim, bias=False)
+        self.to_v = nn.Linear(context_dim, inner_dim, bias=False)
 
+        # 可学习的滞后权重参数，每个头独立学习
+        self.lag_weights = nn.Parameter(torch.randn(heads, max_time_lag + 1))
+        
+        # 输出层
         self.to_out = nn.Sequential(
-            nn.Linear(inner_dim, dim),
+            nn.Linear(inner_dim, query_dim),
             nn.Dropout(dropout)
-        ) if project_out else nn.Identity()
+        )
+
+    def forward(self, x, context=None, mask=None):
+        h = self.heads
+
+        # 查询来自遥感图像
+        q = self.to_q(x)
+        
+        # 键值来自气象数据
+        context = default(context, x)
+        k = self.to_k(context)
+        v = self.to_v(context)
+
+        # 重排为多头形式
+        q, k, v = map(lambda t: rearrange(t, 'b t (h d) -> (b h) t d', h=h), (q, k, v))
+
+        # 计算原始注意力分数
+        sim = einsum('b i d, b j d -> b i j', q, k) * self.scale
+
+        # 创建因果掩码 - 遥感图像只能访问当前及之前时刻的气象数据
+        t = sim.size(1)
+        causal_mask = torch.ones(t, t, device=x.device).triu_(1).bool()
+        max_neg_val = -torch.finfo(sim.dtype).max
+        sim.masked_fill_(causal_mask.unsqueeze(0), max_neg_val)
+
+        # 应用时间滞后权重
+        time_lags = torch.arange(t, device=x.device).view(1, -1, 1) - torch.arange(t, device=x.device).view(1, 1, -1)
+        time_lags = time_lags.clamp(min=0, max=self.max_time_lag)
+        
+        # 扩展滞后权重到batch维度
+        lag_effect = self.lag_weights.unsqueeze(0).unsqueeze(3)  # [1, heads, max_lag+1, 1]
+        lag_effect = lag_effect.expand(sim.size(0), -1, -1, t)   # [batch*heads, heads, max_lag+1, t]
+        
+        # 为每个头选择对应的滞后权重
+        head_indices = torch.arange(h, device=x.device).repeat(sim.size(0) // h)
+        selected_lag_weights = lag_effect[torch.arange(sim.size(0)), head_indices]  # [batch*heads, max_lag+1, t]
+        
+        # 应用滞后效应
+        lag_adjustment = selected_lag_weights.gather(1, time_lags.expand(sim.size(0), -1, -1))
+        sim = sim + lag_adjustment
+
+        if exists(mask):
+            mask = rearrange(mask, 'b ... -> b (...)')
+            mask = repeat(mask, 'b j -> (b h) () j', h=h)
+            sim.masked_fill_(~mask, max_neg_val)
+
+        # 注意力计算
+        attn = sim.softmax(dim=-1)
+
+        out = einsum('b i j, b j d -> b i d', attn, v)
+        out = rearrange(out, '(b h) t d -> b t (h d)', h=h)
+        
+        # 返回输出和注意力图用于可视化分析
+        return self.to_out(out), attn.detach()
+
+
+class TemporalAttention(nn.Module):
+    def __init__(self, dim, heads=8, dim_head=64, max_time_lag=5, dropout=0.):
+        super().__init__()
+        self.cross_modal_attention = TimeShiftedCrossModalAttention(
+            query_dim=dim,
+            context_dim=dim,
+            heads=heads,
+            dim_head=dim_head,
+            max_time_lag=max_time_lag,
+            dropout=dropout
+        )
 
     def forward(self, x, bias=None):
-        b, n, _, h = *x.shape, self.heads
-
-        qkv = self.to_qkv(x).chunk(3, dim=-1)
-        q, k, v = map(lambda t: rearrange(t, 'b t (h d) -> b h t d', h=h), qkv)
-
-        dots = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
-
-        if exists(bias):
-            bias = self.to_qkv(bias).chunk(3, dim=-1)
-            qb, kb, _ = map(lambda t: rearrange(t, 'b t (h d) -> b h t d', h=h), bias)
-            bias = einsum('b h i d, b h j d -> b h i j', qb, kb) * self.scale
-            dots += bias
-
-        attn = dots.softmax(dim=-1)
-
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
-        out = rearrange(out, 'b h n d -> b n (h d)')
-        out = self.to_out(out)
-        return out
+        # 为了保持接口一致性，忽略bias参数或将其作为context传递
+        output, attn_map = self.cross_modal_attention(x, context=x)
+        return output
 
 
 class MultiModalTransformer(nn.Module):
@@ -222,13 +281,14 @@ class SpatialTransformer(nn.Module):
 
 
 class TemporalTransformer(nn.Module):
-    def __init__(self, dim, depth, heads, dim_head, mult=4, dropout=0.):
+    def __init__(self, dim, depth, heads, dim_head, max_time_lag=5, mult=4, dropout=0.):
         super().__init__()
         self.layers = nn.ModuleList([])
         self.norm = nn.LayerNorm(dim)
         for _ in range(depth):
             self.layers.append(nn.ModuleList([
-                PreNorm(dim, TemporalAttention(dim, heads=heads, dim_head=dim_head, dropout=dropout)),
+                PreNorm(dim, TemporalAttention(dim, heads=heads, dim_head=dim_head, 
+                                              max_time_lag=max_time_lag, dropout=dropout)),
                 PreNorm(dim, FeedForward(dim, dim_out=dim, mult=mult, dropout=dropout))
             ]))
 
