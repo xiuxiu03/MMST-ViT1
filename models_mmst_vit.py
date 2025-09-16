@@ -2,7 +2,7 @@ import torch
 from torch import nn
 from einops import rearrange, repeat
 
-from attention import SpatialTransformer, TemporalTransformer
+from attention import SpatialTransformer, TimeShiftedCrossModalAttention
 
 from models_pvt_simclr import PVTSimCLR
 
