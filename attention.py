@@ -146,6 +146,8 @@ class SpatialAttention(nn.Module):
         return out
 
 
+# 在 models_mmst_vit.py 中修正 TimeShiftedCrossModalAttention 类
+
 class TimeShiftedCrossModalAttention(nn.Module):
     def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, max_time_lag=5, dropout=0.):
         super().__init__()
@@ -171,7 +173,7 @@ class TimeShiftedCrossModalAttention(nn.Module):
             nn.Dropout(dropout)
         )
 
-    def forward(self, x, context=None, mask=None):
+    def forward(self, x, context=None):
         h = self.heads
 
         # 查询来自遥感图像
@@ -210,20 +212,14 @@ class TimeShiftedCrossModalAttention(nn.Module):
         lag_adjustment = selected_lag_weights.gather(1, time_lags.expand(sim.size(0), -1, -1))
         sim = sim + lag_adjustment
 
-        if exists(mask):
-            mask = rearrange(mask, 'b ... -> b (...)')
-            mask = repeat(mask, 'b j -> (b h) () j', h=h)
-            sim.masked_fill_(~mask, max_neg_val)
-
         # 注意力计算
         attn = sim.softmax(dim=-1)
 
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) t d -> b t (h d)', h=h)
         
-        # 返回输出和注意力图用于可视化分析
-        return self.to_out(out), attn.detach()
-
+        # 只返回输出张量，不返回注意力图（避免元组拼接错误）
+        return self.to_out(out)
 
 class TemporalAttention(nn.Module):
     def __init__(self, dim, heads=8, dim_head=64, max_time_lag=5, dropout=0.):
