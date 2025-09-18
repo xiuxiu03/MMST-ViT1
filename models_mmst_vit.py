@@ -10,7 +10,7 @@ from models_pvt_simclr import PVTSimCLR
 class MMST_ViT(nn.Module):
     def __init__(self, out_dim=2, num_grid=64, num_short_term_seq=6, num_long_term_seq=12, num_year=5,
                  pvt_backbone=None, context_dim=9, dim=192, batch_size=64, depth=4, heads=3, pool='cls', dim_head=64,
-                 dropout=0., emb_dropout=0., scale_dim=4, max_time_lag=5):
+                 dropout=0., emb_dropout=0., scale_dim=4, ):
         super().__init__()
 
         assert pool in {'cls', 'mean'}, 'pool type must be either cls (cls token) or mean (mean pooling)'
@@ -26,15 +26,7 @@ class MMST_ViT(nn.Module):
         self.space_transformer = SpatialTransformer(dim, depth, heads, dim_head, mult=scale_dim, dropout=dropout)
 
         self.temporal_token = nn.Parameter(torch.randn(1, 1, dim))
-        # 更新 TemporalTransformer 初始化，添加 max_time_lag 参数
-        self.temporal_transformer = TemporalTransformer(
-            dim=dim, 
-            depth=depth, 
-            heads=heads, 
-            dim_head=dim_head, 
-            max_time_lag=max_time_lag,  # 添加时间滞后参数
-            dropout=dropout
-        )
+        self.temporal_transformer = TemporalTransformer(dim, depth, heads, dim_head, mult=scale_dim, dropout=dropout)
 
         self.dropout = nn.Dropout(emb_dropout)
         self.pool = pool
@@ -91,8 +83,7 @@ class MMST_ViT(nn.Module):
         yl = torch.cat((cls_temporal_tokens, yl), dim=1)
         yl = self.norm1(yl)
 
-        # 更新 TemporalTransformer 调用，传递气象数据作为上下文
-        x = self.temporal_transformer(x, context=yl)
+        x = self.temporal_transformer(x, yl)
 
         x = x.mean(dim=1) if self.pool == 'mean' else x[:, 0]
 
@@ -108,7 +99,7 @@ if __name__ == "__main__":
     yl = torch.randn((1, 5, 12, 9))
 
     pvt = PVTSimCLR("pvt_tiny", out_dim=512, context_dim=9)
-    model = MMST_ViT(out_dim=4, pvt_backbone=pvt, dim=512, max_time_lag=5)
+    model = MMST_ViT(out_dim=4, pvt_backbone=pvt, dim=512)
 
     # print(model)
 
