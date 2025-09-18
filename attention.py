@@ -145,9 +145,6 @@ class SpatialAttention(nn.Module):
         out = self.to_out(out)
         return out
 
-
-# 在 models_mmst_vit.py 中修正 TimeShiftedCrossModalAttention 类
-
 class TimeShiftedCrossModalAttention(nn.Module):
     def __init__(self, query_dim, context_dim=None, heads=8, dim_head=64, max_time_lag=5, dropout=0.):
         super().__init__()
@@ -218,7 +215,7 @@ class TimeShiftedCrossModalAttention(nn.Module):
         out = einsum('b i j, b j d -> b i d', attn, v)
         out = rearrange(out, '(b h) t d -> b t (h d)', h=h)
         
-        # 只返回输出张量，不返回注意力图（避免元组拼接错误）
+        # 返回输出张量
         return self.to_out(out)
 
 class MultiModalTransformer(nn.Module):
@@ -277,8 +274,6 @@ class TemporalTransformer(nn.Module):
             ]))
 
     def forward(self, x, bias=None, context=None):
-        # 为了保持兼容性，支持bias和context参数
-        # 如果提供了context，使用context作为跨模态注意力的输入
         for attn, ff in self.layers:
             if context is not None:
                 # 使用跨模态注意力，x作为query，context作为key/value
