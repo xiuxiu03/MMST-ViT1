@@ -171,48 +171,40 @@ class TimeShiftedCrossModalAttention(nn.Module):
             nn.Dropout(dropout)
         )
 
-    def forward(self, x, context=None):
-        h = self.heads
-        b, t, _ = x.shape
-        context = default(context, x)
+def forward(self, x, context=None):
+    h = self.heads
+    b, t, _ = x.shape
+    context = default(context, x)
 
-        q = self.to_q(x)   # (b, t, inner_dim)
-        k = self.to_k(context)  # (b, t, inner_dim)
-        v = self.to_v(context)  # (b, t, inner_dim)
+    q = self.to_q(x)   # (b, t, inner_dim)
+    k = self.to_k(context)
+    v = self.to_v(context)
 
-        # 重排为多头: (b, h, t, d)
-        q, k, v = map(lambda t: rearrange(t, 'b t (h d) -> b h t d', h=h), (q, k, v))
+    q, k, v = map(lambda t: rearrange(t, 'b t (h d) -> b h t d', h=h), (q, k, v))
+    sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
 
-        # 计算相似度: (b, h, t, t)
-        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+    # 因果掩码
+    causal_mask = torch.triu(torch.ones(t, t, device=x.device), diagonal=1).bool()
+    sim.masked_fill_(causal_mask.unsqueeze(0).unsqueeze(0), max_neg_value(sim))
 
-        # 添加因果掩码（只能看过去）
-        causal_mask = torch.triu(torch.ones(t, t, device=x.device), diagonal=1).bool()  # 上三角
-        sim.masked_fill_(causal_mask.unsqueeze(0).unsqueeze(0), max_neg_value(sim))
+    # 时间滞后矩阵
+    time_idx = torch.arange(t, device=x.device)
+    time_lags = (time_idx.unsqueeze(1) - time_idx.unsqueeze(0))  # (t, t)
+    time_lags = time_lags.clamp(min=0, max=self.max_time_lag).long()  # [0, max_lag]
 
-        # 构建时间滞后矩阵 (t, t): i-j 表示 query time i 可以看到 key time j 的滞后
-        time_idx = torch.arange(t, device=x.device)
-        time_lags = (time_idx.unsqueeze(1) - time_idx.unsqueeze(0))  # (t, t), 值为 i - j
-        time_lags = time_lags.clamp(min=0, max=self.max_time_lag).long()  # 截断到 [0, max_lag]
+    # 获取可学习滞后权重 (h, max_lag+1)
+    lag_probs = F.softmax(self.lag_weights, dim=-1)  # (h, max_lag+1)
 
-        # lag_probs: (h, max_lag+1), 归一化
-        lag_probs = F.softmax(self.lag_weights, dim=-1)  # (h, max_lag+1)
+    # ✅ 核心修复：直接索引
+    lag_adjustment = lag_probs[:, time_lags]  # (h, t, t)
+    lag_adjustment = lag_adjustment.unsqueeze(0)  # (1, h, t, t)
 
-        # 正确查表：在 max_lag+1 维度上 gather
-        lag_probs_expanded = lag_probs.unsqueeze(-1).unsqueeze(-1)  # (h, max_lag+1, 1, 1)
-        indices = time_lags.unsqueeze(0).unsqueeze(-1).expand(h, t, t, 1)  # (h, t, t, 1)
-        # 注意：gather 的 dim=1，因为我们是在 max_lag+1 这个维度查
-        lag_adjustment = lag_probs_expanded.gather(1, indices)  # (h, t, t, 1)
-        lag_adjustment = lag_adjustment.squeeze(-1)  # (h, t, t)
-        lag_adjustment = lag_adjustment.unsqueeze(0)  # (1, h, t, t)
+    sim = sim + lag_adjustment  # 广播加法
 
-        # 加到注意力分数上（对数空间加等价于权重乘）
-        sim = sim + lag_adjustment
-
-        attn = sim.softmax(dim=-1)
-        out = einsum('b h i j, b h j d -> b h i d', attn, v)
-        out = rearrange(out, 'b h t d -> b t (h d)')
-        return self.to_out(out)
+    attn = sim.softmax(dim=-1)
+    out = einsum('b h i j, b h j d -> b h i d', attn, v)
+    out = rearrange(out, 'b h t d -> b t (h d)')
+    return self.to_out(out)
 
 
 class MultiModalTransformer(nn.Module):
