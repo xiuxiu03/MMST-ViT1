@@ -200,7 +200,7 @@ class TimeShiftedCrossModalAttention(nn.Module):
 
         # 正确查表：在 max_lag+1 维度上 gather
         lag_probs_expanded = lag_probs.unsqueeze(-1).unsqueeze(-1)  # (h, max_lag+1, 1, 1)
-        indices = time_lags.unsqueeze(0).expand(h, t, t, 1)  # (h, t, t, 1)
+        indices = time_lags.unsqueeze(0).unsqueeze(-1).expand(h, t, t, 1)  # (h, t, t, 1)
         # 注意：gather 的 dim=1，因为我们是在 max_lag+1 这个维度查
         lag_adjustment = lag_probs_expanded.gather(1, indices)  # (h, t, t, 1)
         lag_adjustment = lag_adjustment.squeeze(-1)  # (h, t, t)
