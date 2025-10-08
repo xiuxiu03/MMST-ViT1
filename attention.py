@@ -171,40 +171,40 @@ class TimeShiftedCrossModalAttention(nn.Module):
             nn.Dropout(dropout)
         )
 
-def forward(self, x, context=None):
-    h = self.heads
-    b, t, _ = x.shape
-    context = default(context, x)
+    def forward(self, x, context=None):
+        h = self.heads
+        b, t, _ = x.shape
+        context = default(context, x)
 
-    q = self.to_q(x)   # (b, t, inner_dim)
-    k = self.to_k(context)
-    v = self.to_v(context)
+        q = self.to_q(x)   # (b, t, inner_dim)
+        k = self.to_k(context)
+        v = self.to_v(context)
 
-    q, k, v = map(lambda t: rearrange(t, 'b t (h d) -> b h t d', h=h), (q, k, v))
-    sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
+        q, k, v = map(lambda t: rearrange(t, 'b t (h d) -> b h t d', h=h), (q, k, v))
+        sim = einsum('b h i d, b h j d -> b h i j', q, k) * self.scale
 
-    # 因果掩码
-    causal_mask = torch.triu(torch.ones(t, t, device=x.device), diagonal=1).bool()
-    sim.masked_fill_(causal_mask.unsqueeze(0).unsqueeze(0), max_neg_value(sim))
+        # 因果掩码
+        causal_mask = torch.triu(torch.ones(t, t, device=x.device), diagonal=1).bool()
+        sim.masked_fill_(causal_mask.unsqueeze(0).unsqueeze(0), max_neg_value(sim))
 
-    # 时间滞后矩阵
-    time_idx = torch.arange(t, device=x.device)
-    time_lags = (time_idx.unsqueeze(1) - time_idx.unsqueeze(0))  # (t, t)
-    time_lags = time_lags.clamp(min=0, max=self.max_time_lag).long()  # [0, max_lag]
+        # 时间滞后矩阵
+        time_idx = torch.arange(t, device=x.device)
+        time_lags = (time_idx.unsqueeze(1) - time_idx.unsqueeze(0))  # (t, t)
+        time_lags = time_lags.clamp(min=0, max=self.max_time_lag).long()  # [0, max_lag]
 
-    # 获取可学习滞后权重 (h, max_lag+1)
-    lag_probs = F.softmax(self.lag_weights, dim=-1)  # (h, max_lag+1)
+        # 获取可学习滞后权重 (h, max_lag+1)
+        lag_probs = F.softmax(self.lag_weights, dim=-1)  # (h, max_lag+1)
 
-    # ✅ 核心修复：直接索引
-    lag_adjustment = lag_probs[:, time_lags]  # (h, t, t)
-    lag_adjustment = lag_adjustment.unsqueeze(0)  # (1, h, t, t)
+        # ✅ 核心修复：直接索引
+        lag_adjustment = lag_probs[:, time_lags]  # (h, t, t)
+        lag_adjustment = lag_adjustment.unsqueeze(0)  # (1, h, t, t)
 
-    sim = sim + lag_adjustment  # 广播加法
+        sim = sim + lag_adjustment  # 广播加法
 
-    attn = sim.softmax(dim=-1)
-    out = einsum('b h i j, b h j d -> b h i d', attn, v)
-    out = rearrange(out, 'b h t d -> b t (h d)')
-    return self.to_out(out)
+        attn = sim.softmax(dim=-1)
+        out = einsum('b h i j, b h j d -> b h i d', attn, v)
+        out = rearrange(out, 'b h t d -> b t (h d)')
+        return self.to_out(out)
 
 
 class MultiModalTransformer(nn.Module):
