@@ -190,18 +190,23 @@ class TimeShiftedCrossModalAttention(nn.Module):
         causal_mask = torch.triu(torch.ones(t, t, device=x.device), diagonal=1).bool()  # 上三角
         sim.masked_fill_(causal_mask.unsqueeze(0).unsqueeze(0), max_neg_value(sim))
 
-        # 构建时间滞后矩阵 (t, t)
+        # 构建时间滞后矩阵 (t, t): i-j 表示 query time i 可以看到 key time j 的滞后
         time_idx = torch.arange(t, device=x.device)
-        time_lags = (time_idx.unsqueeze(1) - time_idx.unsqueeze(0))  # i-j
+        time_lags = (time_idx.unsqueeze(1) - time_idx.unsqueeze(0))  # (t, t), 值为 i - j
         time_lags = time_lags.clamp(min=0, max=self.max_time_lag).long()  # 截断到 [0, max_lag]
 
-        # 使用 softmax 归一化滞后权重，避免量级问题
+        # lag_probs: (h, max_lag+1), 归一化
         lag_probs = F.softmax(self.lag_weights, dim=-1)  # (h, max_lag+1)
-        # 扩展并查表: (h, t, t)
-        lag_adjustment = lag_probs.unsqueeze(-1).unsqueeze(-1).gather(-1, time_lags.unsqueeze(0).expand(h, t, t, 1)).squeeze(-1)
+
+        # 正确查表：在 max_lag+1 维度上 gather
+        lag_probs_expanded = lag_probs.unsqueeze(-1).unsqueeze(-1)  # (h, max_lag+1, 1, 1)
+        indices = time_lags.unsqueeze(0).expand(h, t, t, 1)  # (h, t, t, 1)
+        # 注意：gather 的 dim=1，因为我们是在 max_lag+1 这个维度查
+        lag_adjustment = lag_probs_expanded.gather(1, indices)  # (h, t, t, 1)
+        lag_adjustment = lag_adjustment.squeeze(-1)  # (h, t, t)
         lag_adjustment = lag_adjustment.unsqueeze(0)  # (1, h, t, t)
 
-        # 加到注意力分数上
+        # 加到注意力分数上（对数空间加等价于权重乘）
         sim = sim + lag_adjustment
 
         attn = sim.softmax(dim=-1)
