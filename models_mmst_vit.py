@@ -109,7 +109,7 @@ class MMST_ViT(nn.Module):
         yl = torch.cat((cls_temporal_tokens, yl), dim=1)  # 形状: (b, t+1, dim)
 
         # 将气象数据 yl 作为 context 传入 TemporalTransformer
-        x = self.temporal_transformer(x, context=yl)  # 返回 (b, t+1, dim)
+        x = self.temporal_transformer(x, context=yl)[0]  # 返回 (b, t+1, dim)
 
         # 池化：取 cls token 或平均
         x = x.mean(dim=1) if self.pool == 'mean' else x[:, 0]
