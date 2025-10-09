@@ -119,7 +119,7 @@ def main(args):
     print('job dir: {}'.format(os.path.dirname(os.path.realpath(__file__))))
     print("{}".format(args).replace(', ', ',\n'))
 
-    device = torch.device('cuda:1')
+    device = torch.device('cuda:0')
 
     # fix the seed for reproducibility
     seed = args.seed + misc.get_rank()
