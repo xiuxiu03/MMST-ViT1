@@ -195,7 +195,7 @@ class TimeShiftedCrossModalAttention(nn.Module):
         # 获取可学习滞后权重 (h, max_lag+1)
         lag_probs = F.softmax(self.lag_weights, dim=-1)  # (h, max_lag+1)
 
-        # ✅ 核心修复：直接索引
+        # 直接索引
         lag_adjustment = lag_probs[:, time_lags]  # (h, t, t)
         lag_adjustment = lag_adjustment.unsqueeze(0)  # (1, h, t, t)
 
